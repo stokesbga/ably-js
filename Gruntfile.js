@@ -97,6 +97,7 @@ module.exports = function (grunt) {
 		'<%= dirs.common %>/lib/util/logger.js',
 		'<%= dirs.common %>/lib/util/utils.js',
 		'<%= dirs.common %>/lib/util/multicaster.js',
+		'<%= dirs.common %>/lib/util/ulid.js',
 
 		'<%= dirs.common %>/lib/types/errorinfo.js',
 		'<%= dirs.common %>/lib/types/message.js',
@@ -130,7 +131,6 @@ module.exports = function (grunt) {
 		'<%= dirs.common %>/lib/client/realtimechannel.js',
 		'<%= dirs.common %>/lib/client/realtimepresence.js',
 
-		'<%= dirs.browser %>/lib/util/ulid.js',
 		'<%= dirs.browser %>/lib/transport/xhrrequest.js',
 		'<%= dirs.browser %>/lib/transport/xhrstreamingtransport.js',
 		'<%= dirs.browser %>/lib/transport/xhrpollingtransport.js',
