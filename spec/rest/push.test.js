@@ -17,6 +17,17 @@ define(['ably', 'shared_helper', 'async'], function(Ably, helper, async) {
 					registrationToken: 'xxxxxxxxxxx',
 				}
 			}
+		},
+		testDevice_withoutSecret = {
+			id: 'testId',
+			platform: 'android',
+			formFactor: 'phone',
+			push: {
+				recipient: {
+					transportType: 'gcm',
+					registrationToken: 'xxxxxxxxxxx',
+				}
+			}
 		};
 
 	exports.setup_push = function(test) {
@@ -226,7 +237,7 @@ define(['ably', 'shared_helper', 'async'], function(Ably, helper, async) {
 			test.equal(got.push.state, 'ACTIVE');
 			delete got.metadata; // Ignore these properties for testing
 			delete got.push.state;
-			includesUnordered(test, untyped(got), testDevice);
+			includesUnordered(test, untyped(got), testDevice_withoutSecret);
 			test.done();
 		});
 	};
@@ -235,6 +246,7 @@ define(['ably', 'shared_helper', 'async'], function(Ably, helper, async) {
 		var registrations = [];
 		var deletes = [];
 		var devices = [];
+		var devices_withoutSecret = [];
 		var devicesByClientId = {};
 		let numberOfDevices = 5;
 		for (var i = 0; i < numberOfDevices; i++) { (function(i) {
@@ -251,11 +263,24 @@ define(['ably', 'shared_helper', 'async'], function(Ably, helper, async) {
 					},
 				},
 			};
+			var device_withoutSecret = {
+				id: 'device' + (i + 1),
+				clientId: 'testClient' + ((i % 2) + 1),
+				platform: 'android',
+				formFactor: 'phone',
+				push: {
+					recipient: {
+						transportType: 'gcm',
+						registrationToken: 'xxxxxxxxxxx',
+					},
+				},
+			};
 			if (!devicesByClientId[device.clientId]) {
 				devicesByClientId[device.clientId] = [];
 			}
-			devicesByClientId[device.clientId].push(device);
+			devicesByClientId[device.clientId].push(device_withoutSecret);
 			devices.push(device);
+			devices_withoutSecret.push(device_withoutSecret);
 
 			var rest = helper.AblyRest({clientId: device.clientId});
 			registrations.push(function(callback) {
@@ -291,7 +316,7 @@ define(['ably', 'shared_helper', 'async'], function(Ably, helper, async) {
 				return;
 			}
 			test.equal(numberOfDevices, result[0].length);
-			includesUnordered(test, untyped(result[1].items), untyped(devices));
+			includesUnordered(test, untyped(result[1].items), untyped(devices_withoutSecret));
 			includesUnordered(test, untyped(result[2].items), untyped(devicesByClientId['testClient1']));
 			includesUnordered(test, untyped(result[3].items), untyped(devicesByClientId['testClient2']));
 			test.done();
