@@ -4040,14 +4040,14 @@ Defaults.PORT                     = 80;
 Defaults.TLS_PORT                 = 443;
 Defaults.TIMEOUTS = {
 	/* Documented as options params: */
-	disconnectedRetryTimeout   : 15000,
+	disconnectedRetryTimeout   : 60000,
 	suspendedRetryTimeout      : 30000,
 	httpRequestTimeout         : 15000,
 	channelRetryTimeout        : 15000,
 	/* Not documented: */
-	connectionStateTtl         : 120000,
+	connectionStateTtl         : 60000,
 	realtimeRequestTimeout     : 10000,
-	recvTimeout                : 90000,
+	recvTimeout                : 60000,
 	preferenceConnectTimeout   : 6000,
 	parallelUpgradeDelay       : 6000
 };
