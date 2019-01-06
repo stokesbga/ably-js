@@ -141,8 +141,6 @@ var ConnectionManager = (function() {
 		* transport, it'll just be that one. */
 		this.baseTransport = Utils.intersect(Defaults.baseTransportOrder, this.transports)[0];
 		this.upgradeTransports = Utils.intersect(this.transports, Defaults.upgradeTransports);
-		/* Map of hosts to an array of transports to not be tried for that host */
-		this.transportHostBlacklist = {};
 		this.transportPreference = null;
 
 		this.httpHosts = Defaults.getHosts(options);
@@ -174,7 +172,10 @@ var ConnectionManager = (function() {
 			}
 
 			if(options.closeOnUnload === true) {
-				addEventListener('beforeunload', function() { self.requestState({state: 'closing'}); });
+				addEventListener('beforeunload', function() {
+					Logger.logAction(Logger.LOG_MAJOR, 'Realtime.ConnectionManager()', 'beforeunload event has triggered the connection to close as closeOnUnload is true');
+					self.requestState({state: 'closing'});
+				});
 			}
 
 			/* Listen for online and offline events */
@@ -268,10 +269,6 @@ var ConnectionManager = (function() {
 	ConnectionManager.prototype.tryATransport = function(transportParams, candidate, callback) {
 		var self = this, host = transportParams.host;
 		Logger.logAction(Logger.LOG_MICRO, 'ConnectionManager.tryATransport()', 'trying ' + candidate);
-		if((host in this.transportHostBlacklist) && Utils.arrIn(this.transportHostBlacklist[host], candidate)) {
-			Logger.logAction(Logger.LOG_MINOR, 'ConnectionManager.tryATransport()', candidate + ' transport is blacklisted for host ' + transportParams.host);
-			return;
-		}
 		(ConnectionManager.supportedTransports[candidate]).tryConnect(this, this.realtime.auth, transportParams, function(wrappedErr, transport) {
 			var state = self.state;
 			if(state == self.states.closing || state == self.states.closed || state == self.states.failed) {
@@ -546,7 +543,7 @@ var ConnectionManager = (function() {
 
 		var connectionKey = connectionDetails.connectionKey;
 		if(connectionKey && this.connectionKey != connectionKey)  {
-			this.setConnection(connectionId, connectionDetails, connectionPosition);
+			this.setConnection(connectionId, connectionDetails, connectionPosition, true);
 		}
 
 		/* Rebroadcast any new connectionDetails from the active transport, which
@@ -653,11 +650,15 @@ var ConnectionManager = (function() {
 			/* TODO remove below line once realtime sends token errors as DISCONNECTEDs */
 			if(state === 'failed' && Auth.isTokenErr(error)) { state = 'disconnected' }
 			this.notifyState({state: state, error: error});
-		} else if(wasActive && (state === 'disconnected')) {
+		} else if(wasActive && (state === 'disconnected') && (this.state !== this.states.synchronizing)) {
 			/* If we were active but there is another transport scheduled for
 			* activation, go into to the connecting state until that transport
 			* activates and sets us back to connected. (manually starting the
-			* transition timers in case that never happens) */
+			* transition timers in case that never happens). (If we were in the
+			* synchronizing state, then that's fine, the old transport just got its
+			* disconnected before the new one got the sync -- ignore it and keep
+			* waiting for the sync. If it fails we have a separate sync timer that
+			* will expire). */
 			Logger.logAction(Logger.LOG_MICRO, 'ConnectionManager.deactivateTransport()', 'wasActive but another transport is connected and scheduled for activation, so going into the connecting state until it activates');
 			this.startSuspendTimer();
 			this.startTransitionTimer(this.states.connecting);
@@ -704,7 +705,7 @@ var ConnectionManager = (function() {
 		});
 	};
 
-	ConnectionManager.prototype.setConnection = function(connectionId, connectionDetails, connectionPosition) {
+	ConnectionManager.prototype.setConnection = function(connectionId, connectionDetails, connectionPosition, forceSetPosition) {
 		/* if connectionKey changes but connectionId stays the same, then just a
 		 * transport change on the same connection. If connectionId changes, we're
 		 * on a new connection, with implications for msgSerial and channel state */
@@ -729,7 +730,7 @@ var ConnectionManager = (function() {
 		}
 		this.realtime.connection.id = this.connectionId = connectionId;
 		this.realtime.connection.key = this.connectionKey = connectionDetails.connectionKey;
-		this.setConnectionSerial(connectionPosition);
+		this.setConnectionSerial(connectionPosition, forceSetPosition);
 	};
 
 	ConnectionManager.prototype.clearConnection = function() {
@@ -740,10 +741,12 @@ var ConnectionManager = (function() {
 		this.unpersistConnection();
 	};
 
-	ConnectionManager.prototype.setConnectionSerial = function(connectionPosition) {
+	/* force: set the connectionSerial even if it's less than the current connectionSerial. Used when
+	 * activating a new transport, where the connectionSerial realtime tells us we have must be authoritative */
+	ConnectionManager.prototype.setConnectionSerial = function(connectionPosition, force) {
 		var timeSerial = connectionPosition.timeSerial;
 		if(timeSerial !== undefined) {
-			if(timeSerial <= this.timeSerial) {
+			if(timeSerial <= this.timeSerial && !force) {
 				Logger.logAction(Logger.LOG_MICRO, 'ConnectionManager.setConnectionSerial() received message with timeSerial ' + timeSerial + ', but current timeSerial is ' + this.timeSerial + '; assuming message is a duplicate and discarding it');
 				return;
 			}
@@ -753,7 +756,7 @@ var ConnectionManager = (function() {
 		}
 		var connectionSerial = connectionPosition.connectionSerial;
 		if(connectionSerial !== undefined) {
-			if(connectionSerial <= this.connectionSerial) {
+			if(connectionSerial <= this.connectionSerial && !force) {
 				Logger.logAction(Logger.LOG_MICRO, 'ConnectionManager.setConnectionSerial() received message with connectionSerial ' + connectionSerial + ', but current connectionSerial is ' + this.connectionSerial + '; assuming message is a duplicate and discarding it');
 				return;
 			}
@@ -817,6 +820,10 @@ var ConnectionManager = (function() {
 	/*********************
 	 * state management
 	 *********************/
+
+	ConnectionManager.prototype.getError = function() {
+		return this.errorReason || this.getStateError();
+	};
 
 	ConnectionManager.prototype.getStateError = function() {
 		return ConnectionError[this.state.state];
@@ -1416,13 +1423,44 @@ var ConnectionManager = (function() {
 		}
 	};
 
+	function bundleWith(dest, src, maxSize) {
+		var action;
+		if(dest.channel !== src.channel) {
+			/* RTL6d3 */
+			return false;
+		}
+		if((action = dest.action) !== actions.PRESENCE && action !== actions.MESSAGE) {
+			/* RTL6d - can only bundle messages or presence */
+			return false;
+		}
+		if(action !== src.action) {
+			/* RTL6d4 */
+			return false;
+		}
+		var kind = (action === actions.PRESENCE) ? 'presence' : 'messages',
+			proposed = dest[kind].concat(src[kind]),
+			size = Message.getMessagesSize(proposed);
+		if(size > maxSize) {
+			/* RTL6d1 */
+			return false;
+		}
+		if(!Utils.allSame(proposed, 'clientId')) {
+			/* RTL6d2 */
+			return false;
+		}
+		/* we're good to go! */
+		dest[kind] = proposed;
+		return true;
+	};
+
 	ConnectionManager.prototype.queue = function(msg, callback) {
 		Logger.logAction(Logger.LOG_MICRO, 'ConnectionManager.queue()', 'queueing event');
 		var lastQueued = this.queuedMessages.last();
+		var maxSize = this.options.maxMessageSize;
 		/* If have already attempted to send a message, don't merge more messages
 		 * into it, as if the previous send actually succeeded and realtime ignores
 		 * the dup, they'll be lost */
-		if(lastQueued && !lastQueued.sendAttempted && RealtimeChannel.mergeTo(lastQueued.message, msg)) {
+		if(lastQueued && !lastQueued.sendAttempted && bundleWith(lastQueued.message, msg, maxSize)) {
 			if(!lastQueued.merged) {
 				lastQueued.callback = Multicaster([lastQueued.callback]);
 				lastQueued.merged = true;
@@ -1498,6 +1536,7 @@ var ConnectionManager = (function() {
 
 			var onHeartbeat = function (responseId) {
 				if(responseId === id) {
+					transport.off('heartbeat', onHeartbeat);
 					clearTimeout(timer);
 					var responseTime = Utils.now() - pingStart;
 					callback(null, responseTime);
@@ -1506,7 +1545,7 @@ var ConnectionManager = (function() {
 
 			var timer = setTimeout(onTimeout, this.options.timeouts.realtimeRequestTimeout);
 
-			transport.once('heartbeat', onHeartbeat);
+			transport.on('heartbeat', onHeartbeat);
 			transport.ping(id);
 			return;
 		}
@@ -1592,6 +1631,7 @@ var ConnectionManager = (function() {
 			return;
 		}
 		this.connectionDetails = connectionDetails;
+		this.options.maxMessageSize = connectionDetails.maxMessageSize;
 		var clientId = connectionDetails.clientId;
 		if(clientId) {
 			var err = this.realtime.auth._uncheckedSetClientId(clientId);

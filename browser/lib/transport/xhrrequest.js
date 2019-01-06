@@ -30,13 +30,15 @@ var XHRRequest = (function() {
 		return xhr.getResponseHeader && xhr.getResponseHeader(header);
 	}
 
-	/* Safari mysteriously returns 'Identity' for transfer-encoding
-	 * when in fact it is 'chunked'. So instead, decide that it is
-	 * chunked when transfer-encoding is present, content-length is absent */
+	/* Safari mysteriously returns 'Identity' for transfer-encoding when in fact
+	 * it is 'chunked'. So instead, decide that it is chunked when
+	 * transfer-encoding is present or content-length is absent.  ('or' because
+	 * when using http2 streaming, there's no transfer-encoding header, but can
+	 * still deduce streaming from lack of content-length) */
 	function isEncodingChunked(xhr) {
 		return xhr.getResponseHeader
-			&& xhr.getResponseHeader('transfer-encoding')
-			&& !xhr.getResponseHeader('content-length');
+			&& (xhr.getResponseHeader('transfer-encoding')
+			|| !xhr.getResponseHeader('content-length'));
 	}
 
 	function getHeadersAsObject(xhr) {

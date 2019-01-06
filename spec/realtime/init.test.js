@@ -113,9 +113,8 @@ define(['ably', 'shared_helper'], function(Ably, helper) {
 			test.equal(realtime.auth.clientId, null);
 			realtime.connection.on('connected', function() {
 				test.equal(realtime.auth.tokenDetails.clientId, '*');
-				/* auth.clientId does not inherit the value '*'; it remains null as
-				* client is not identified */
-				test.equal(realtime.auth.clientId, null);
+				/* auth.clientId now does inherit the value '*' -- RSA7b4 */
+				test.equal(realtime.auth.clientId, '*');
 				test.equal(realtime.auth.tokenDetails.expires - realtime.auth.tokenDetails.issued, 12345);
 				closeAndFinish(test, realtime);
 			});
@@ -181,14 +180,14 @@ define(['ably', 'shared_helper'], function(Ably, helper) {
 	exports.init_defaulthost = function(test) {
 		test.expect(1);
 		try {
-			var realtime = helper.AblyRealtime({ key: 'not_a.real:key' });
+			/* want to check the default host when no custom environment or custom
+			 * host set, so not using helpers.realtime this time, which will use a
+			 * test env */
+			var realtime = new Ably.Realtime({ key: 'not_a.real:key', autoConnect: false });
 			var defaultHost = realtime.connection.connectionManager.httpHosts[0];
-			var hostWithoutEnv = defaultHost.replace(/^\w+\-rest/, 'rest');
-			test.equal(hostWithoutEnv, 'rest.ably.io', 'Verify correct default rest host chosen');
-			realtime.connection.on('failed', function (state) {
-				test.done();
-				realtime.close();
-			});
+			test.equal(defaultHost, 'rest.ably.io', 'Verify correct default rest host chosen');
+			realtime.close();
+			test.done();
 		} catch(e) {
 			test.ok(false, 'Init with key failed with exception: ' + e.stack);
 			test.done();

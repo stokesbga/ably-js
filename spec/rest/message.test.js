@@ -2,6 +2,7 @@
 
 define(['ably', 'shared_helper'], function(Ably, helper) {
 	var exports = {};
+	var displayError = helper.displayError;
 
 	exports.setupInit = function(test) {
 		test.expect(1);
@@ -35,13 +36,13 @@ define(['ably', 'shared_helper'], function(Ably, helper) {
 
 		channel.publish('event0', null, function(err) {
 			if (err) {
-				test.ok(err, 'Publish failed with implicit clientId');
+				test.ok(false, 'Publish failed with implicit clientId: ' + displayError(err));
 				return test.done();
 			}
 
 			channel.history(function(err, page) {
 				if (err) {
-					test.ok(err, 'History failed with implicit clientId');
+					test.ok(false, 'History failed with implicit clientId: ' + displayError(err));
 					return test.done();
 				}
 
@@ -71,13 +72,13 @@ define(['ably', 'shared_helper'], function(Ably, helper) {
 
 		channel.publish({ name: 'event0', clientId: clientId}, function(err) {
 			if (err) {
-				test.ok(err, 'Publish failed with explicit clientId');
+				test.ok(false, 'Publish failed with explicit clientId: ' + displayError(err));
 				return test.done();
 			}
 
 			channel.history(function(err, page) {
 				if (err) {
-					test.ok(err, 'History failed with explicit clientId');
+					test.ok(false, 'History failed with explicit clientId: ' + displayError(err));
 					return test.done();
 				}
 
@@ -119,7 +120,7 @@ define(['ably', 'shared_helper'], function(Ably, helper) {
 
 				channel.history(function(err, page) {
 					if (err) {
-						test.ok(err, 'History failed with explicit clientId');
+						test.ok(false, 'History failed with explicit clientId: ' + displayError(err));
 						return test.done();
 					}
 
@@ -127,6 +128,20 @@ define(['ably', 'shared_helper'], function(Ably, helper) {
 					test.done();
 				});
 			});
+		});
+	};
+
+	/* TO3l8; CD2C; RSL1i */
+	exports.maxMessageSize = function(test) {
+		test.expect(2);
+		/* No connectionDetails mechanism for REST, so just pass the override into the constructor */
+		var realtime = helper.AblyRest({maxMessageSize: 64}),
+			channel = realtime.channels.get('maxMessageSize');
+
+		channel.publish('foo', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', function(err) {
+			test.ok(err, 'Check publish refused');
+			test.equal(err.code, 40009);
+			test.done();
 		});
 	};
 

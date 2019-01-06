@@ -1749,25 +1749,27 @@ define(['ably', 'shared_helper', 'async'], function(Ably, helper, async) {
 
 	/* RTP5f; RTP11d
 	 * Check that on ATTACHED -> SUSPENDED -> ATTACHED, members map is preserved
-	 * and only members that changedbetween ATTACHED stats should result in
+	 * and only members that changed between ATTACHED states should result in
 	 * presence events */
 	exports.suspended_preserves_presence = function(test) {
 		test.expect(8);
-		var mainRealtime = helper.AblyRealtime({clientId: 'main'}),
-			continuousRealtime = helper.AblyRealtime({clientId: 'continuous'}),
-			leavesRealtime = helper.AblyRealtime({clientId: 'leaves'}),
+		var mainRealtime = helper.AblyRealtime({clientId: 'main', log: {level: 4}}),
+			continuousRealtime = helper.AblyRealtime({clientId: 'continuous', log: {level: 4}}),
+			leavesRealtime = helper.AblyRealtime({clientId: 'leaves', log: {level: 4}}),
 			channelName = 'suspended_preserves_presence',
 			mainChannel = mainRealtime.channels.get(channelName);
 
 		monitorConnection(test, continuousRealtime);
 		monitorConnection(test, leavesRealtime);
-		var enter = function(rt, outerCb) {
-			var channel = rt.channels.get(channelName);
-			async.series([
-				function(cb) { rt.connection.whenState('connected', function() { cb(); }); },
-				function(cb) { channel.attach(cb); },
-				function(cb) { channel.presence.enter(cb); }
-			], outerCb);
+		var enter = function(rt) {
+			return function(outerCb) {
+				var channel = rt.channels.get(channelName);
+				async.series([
+					function(cb) { rt.connection.whenState('connected', function() { cb(); }); },
+					function(cb) { channel.attach(cb); },
+					function(cb) { channel.presence.enter(cb); }
+				], outerCb);
+			};
 		};
 		var waitFor = function(expectedClientId) {
 			return function(cb) {
@@ -1782,16 +1784,18 @@ define(['ably', 'shared_helper', 'async'], function(Ably, helper, async) {
 		};
 
 		async.series([
+			enter(mainRealtime),
 			function(cb) {
-				enter(mainRealtime, cb);
+				async.parallel([
+					waitFor('continuous'),
+					enter(continuousRealtime)
+				], cb)
 			},
 			function(cb) {
-				waitFor('continuous')(cb);
-				enter(continuousRealtime, function(err) { if(err) cb(err); });
-			},
-			function(cb) {
-				waitFor('leaves')(cb);
-				enter(leavesRealtime, function(err) { if(err) cb(err); });
+				async.parallel([
+					waitFor('leaves'),
+					enter(leavesRealtime)
+				], cb)
 			},
 			function(cb) {
 				mainChannel.presence.get(function(err, members) {
@@ -1806,7 +1810,7 @@ define(['ably', 'shared_helper', 'async'], function(Ably, helper, async) {
 				mainChannel.presence.get(function(err) {
 					/* Check RTP11d: get() returns an error by default */
 					test.ok(err, 'Check error returned by get() while suspended');
-					test.equal(err && err.code, 91005, 'Check error code for get() while suspende');
+					test.equal(err && err.code, 91005, 'Check error code for get() while suspended');
 					cb();
 				});
 			},

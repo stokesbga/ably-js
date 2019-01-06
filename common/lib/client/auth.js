@@ -72,8 +72,7 @@ var Auth = (function() {
 	function useTokenAuth(options) {
 		return options.useTokenAuth ||
 			(!basicAuthForced(options) &&
-			 (options.clientId     ||
-			  options.authCallback ||
+			 (options.authCallback ||
 			  options.authUrl      ||
 			  options.token        ||
 			  options.tokenDetails))
@@ -94,12 +93,10 @@ var Auth = (function() {
 			logAndValidateTokenAuthMethod(this.authOptions);
 		} else {
 			/* Basic auth */
-			if(options.clientId || !options.key) {
-				var msg = 'Cannot authenticate with basic auth' +
-					(options.clientId ? ' as a clientId implies token auth' :
-					 (!options.key ? ' as no key was given' : ''));
-					 Logger.logAction(Logger.LOG_ERROR, 'Auth()', msg);
-					 throw new Error(msg);
+			if(!options.key) {
+				var msg = 'No authentication options provided; need one of: key, authUrl, or authCallback (or for testing only, token or tokenDetails)';
+				Logger.logAction(Logger.LOG_ERROR, 'Auth()', msg);
+				throw new ErrorInfo(msg, 40160, 401);
 			}
 			Logger.logAction(Logger.LOG_MINOR, 'Auth()', 'anonymous, using basic auth');
 			this._saveBasicOptions(options);
@@ -318,12 +315,13 @@ var Auth = (function() {
 						authOptions.authParams = Utils.mixin(providedQsParams, authOptions.authParams);
 					}
 				}
-				var authParams = Utils.mixin(params, authOptions.authParams);
+				/* RSA8c2 */
+				var authParams = Utils.mixin({},  authOptions.authParams, params);
 				var authUrlRequestCallback = function(err, body, headers, unpacked) {
 					if (err) {
 						Logger.logAction(Logger.LOG_MICRO, 'Auth.requestToken().tokenRequestCallback', 'Received Error; ' + Utils.inspectError(err));
 					} else {
-						Logger.logAction(Logger.LOG_MICRO, 'Auth.requestToken().tokenRequestCallback', 'Received; body: ' + (BufferUtils.isBuffer(body) ? body.toString() : body));
+						Logger.logAction(Logger.LOG_MICRO, 'Auth.requestToken().tokenRequestCallback', 'Received; body: ' + Utils.inspectBody(body));
 					}
 					if(err || unpacked) return cb(err, body);
 					if(BufferUtils.isBuffer(body)) body = body.toString();
@@ -410,7 +408,9 @@ var Auth = (function() {
 			}
 			/* the response from the callback might be a token string, a signed request or a token details */
 			if(typeof(tokenRequestOrDetails) === 'string') {
-				if(tokenRequestOrDetails.length > MAX_TOKENSTRING_LENGTH) {
+				if(tokenRequestOrDetails.length === 0) {
+					callback(new ErrorInfo('Token string is empty', 40170, 401));
+				} else if(tokenRequestOrDetails.length > MAX_TOKENSTRING_LENGTH) {
 					callback(new ErrorInfo('Token string exceeded max permitted length (was ' + tokenRequestOrDetails.length + ' bytes)', 40170, 401));
 				} else {
 					callback(null, {token: tokenRequestOrDetails});
@@ -726,8 +726,6 @@ var Auth = (function() {
 			var err = new ErrorInfo(msg, 40102, 401);
 			Logger.logAction(Logger.LOG_ERROR, 'Auth._uncheckedSetClientId()', msg);
 			return err;
-		} else if(clientId === '*') {
-			this.tokenParams.clientId = clientId;
 		} else {
 			/* RSA7a4: if options.clientId is provided and is not
 			 * null, it overrides defaultTokenParams.clientId */
@@ -738,6 +736,7 @@ var Auth = (function() {
 
 	Auth.prototype._tokenClientIdMismatch = function(tokenClientId) {
 		return this.clientId &&
+			(this.clientId !== '*') &&
 			tokenClientId &&
 			(tokenClientId !== '*') &&
 			(this.clientId !== tokenClientId);

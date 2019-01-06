@@ -8,13 +8,16 @@ This SDK supports the following platforms:
 
 **Browsers:** All major desktop and mobile browsers, including (but not limited to) Chrome, Firefox, IE (only version 8 or newer), Safari on iOS and macOS, Opera, and Android browsers.
 
-**Node.js:** version 4 or newer
+**Webpack:** see [using Webpack in browsers](#using-webpack), or [our guide for serverside Webpack](#serverside-usage-with-webpack)
+
+**Node.js:** version 4.5 or newer
 
 **React Native:** see [ably-js-react-native](https://github.com/ably/ably-js-react-native)
 
 **NativeScript:** see [ably-js-nativescript](https://github.com/ably/ably-js-nativescript)
 
-**TypeScript:** see [below](#TypeScript)
+**TypeScript:** see [below](#typescript)
+
 
 We regression-test the library against a selection of those (which will change over time, but usually consists of the versions that are supported upstream, plus old versions of IE).
 
@@ -22,9 +25,9 @@ However, we aim to be compatible with a much wider set of platforms and browsers
 
 Ably-js has fallback mechanisms in order to be able to support older browsers; specifically it supports comet-based connections for browsers that do not support websockets, and this includes JSONP for browsers that do not support cross-origin XHR. Each of these fallback transport mechanisms is supported and tested on all the browsers we test against, even when those browsers do not themselves require those fallbacks. These mean that the library should be compatible with nearly any browser on most platforms.  Any known browser incompatibilities can be found [here](https://github.com/ably/ably-js/issues?q=is%3Aissue+is%3Aopen+label%3A%22compatibility%22).
 
-#### Version: 1.0.16
+#### Version: 1.0.20
 
-The latest stable version of the Ably Javascript client library is `1.0.16`.
+The latest stable version of the Ably Javascript client library is version: 1.0.20 .
 
 For complete API documentation, see the [Ably documentation](https://www.ably.io/documentation).
 
@@ -34,19 +37,17 @@ For complete API documentation, see the [Ably documentation](https://www.ably.io
 
     npm install ably --save
 
-### Usage
-
-For the realtime library:
+and require as:
 
 ```javascript
-var realtime = require('ably').Realtime;
+var Ably = require('ably')
 ```
 
-For the rest-only library:
+For usage, jump to [Using the Realtime API](#using-the-realtime-api) or [Using the REST API](#using-the-rest-api)
 
-```javascript
-var rest = require('ably').Rest;
-```
+#### Serverside usage with webpack
+
+Add 'ably' to `externals` in your webpack config to exclude it from webpack processing, and require and use it in as a external module using require('ably') as above.
 
 ## For browsers
 
@@ -58,17 +59,7 @@ Include the Ably library in your HTML:
 
 The Ably client library follows [Semantic Versioning](http://semver.org/). To lock into a major or minor version of the client library, you can specify a specific version number such as https://cdn.ably.io/lib/ably.min-1.js for all v1.* versions, or https://cdn.ably.io/lib/ably.min-1.0.js for all v1.0.* versions, or you can lock into a single release with https://cdn.ably.io/lib/ably.min-1.0.9.js. Note you can load the non-minified version by omitting `min-` from the URL such as https://cdn.ably.io/lib/ably-1.0.js. See https://github.com/ably/ably-js/tags for a list of tagged releases.
 
-For the realtime library:
-
-```javascript
-var realtime = Ably.Realtime;
-```
-
-For the REST only library:
-
-```javascript
-var rest = Ably.Rest;
-```
+For usage, jump to [Using the Realtime API](#using-the-realtime-api) or [Using the REST API](#using-the-rest-api)
 
 ### TypeScript
 
@@ -99,7 +90,7 @@ var realtime = new Ably.Realtime(options);
 If you are using ES6 and or a transpiler that suppots ES6 modules with WebPack, you can include Ably as follows:
 
 ```javascript
-import Ably from 'ably/browser/static/ably-commonjs.js'
+import * as Ably from 'ably/browser/static/ably-commonjs.js'
 let realtime = new Ably.Realtime(options)
 ```
 
@@ -113,6 +104,8 @@ See the [ably-js-nativescript repo](https://github.com/ably/ably-js-nativescript
 
 ## Using the Realtime API
 
+This readme gives some basic examples; for our full API documentation, please go to https://www.ably.io/documentation .
+
 ### Introduction
 
 All examples assume a client has been created as follows:
@@ -121,10 +114,7 @@ All examples assume a client has been created as follows:
 // basic auth with an API key
 var client = new Ably.Realtime(<key string>)
 
-// using a token string
-var client = new Ably.Realtime(<token string>)
-
-// using an Options object, see https://www.ably.io/documentation/rest/usage#options
+// using a Client Options object, see https://www.ably.io/documentation/rest/usage#options
 // which must contain at least one auth option, i.e. at least
 // one of: key, token, tokenDetails, authUrl, or authCallback
 var client = new Ably.Realtime(<options>)
@@ -295,6 +285,8 @@ channel.setOptions({cipher: {key: <key>}}, function() {
 
 ## Using the REST API
 
+This readme gives some basic examples. For our full API documentation, please go to https://www.ably.io/documentation .
+
 ### Introduction
 
 All examples assume a client and/or channel has been created as follows:
@@ -303,10 +295,7 @@ All examples assume a client and/or channel has been created as follows:
 // basic auth with an API key
 var client = new Ably.Rest(<key string>)
 
-// using token auth
-var client = new Ably.Rest(<token string>)
-
-// using an Options object, see https://www.ably.io/documentation/realtime/usage#client-options
+// using a Client Options object, see https://www.ably.io/documentation/realtime/usage#client-options
 // which must contain at least one auth option, i.e. at least
 // one of: key, token, tokenDetails, authUrl, or authCallback
 var client = new Ably.Rest(<options>)
@@ -549,10 +538,7 @@ To see what has changed in recent versions, see the [CHANGELOG](CHANGELOG.md).
 - Run `grunt release:patch` (or: "major", "minor", "patch", "prepatch")
 - Run `grunt release:deploy`
 - Visit https://github.com/ably/ably-js/tags and add release notes to the release (generally you can just copy the notes you added to the CHANGELOG)
-- If the [type definitions](https://github.com/ably/ably-js/blob/master/ably.d.ts) have changed, submit a [PR to DefinitelyTyped](https://github.com/DefinitelyTyped/DefinitelyTyped/pull/14524).
 - For nontrivial releases: update the ably-js submodule ref in the realtime repo
-
-Warning: if publishing to npm, please use npm version 5.1 (`npm install -g npm@5.1`), as 5.5 has a bug that results in the creation of an invalid package, see https://github.com/ably/ably-js/issues/422 and https://github.com/npm/npm/issues/18870 for more info
 
 ## License
 

@@ -1,7 +1,7 @@
 /**
  * @license Copyright 2018, Ably
  *
- * Ably JavaScript Library v1.0.16
+ * Ably JavaScript Library v1.0.20
  * https://github.com/ably/ably-js
  *
  * Ably Realtime Messaging
@@ -4002,7 +4002,6 @@ var Base64 = (function() {
 	return Base64;
 })();
 
-Defaults.protocolVersion          = 1;
 Defaults.ENVIRONMENT              = '';
 Defaults.REST_HOST                = 'rest.ably.io';
 Defaults.REALTIME_HOST            = 'realtime.ably.io';
@@ -4024,7 +4023,7 @@ Defaults.TIMEOUTS = {
 };
 Defaults.httpMaxRetryCount = 3;
 
-Defaults.version          = '1.0.16';
+Defaults.version          = '1.0.20';
 Defaults.libstring        = Platform.libver + Defaults.version;
 Defaults.apiVersion       = '1.0';
 
@@ -5845,7 +5844,10 @@ var ConnectionManager = (function() {
 			}
 
 			if(options.closeOnUnload === true) {
-				addEventListener('beforeunload', function() { self.requestState({state: 'closing'}); });
+				addEventListener('beforeunload', function() {
+					Logger.logAction(Logger.LOG_MAJOR, 'Realtime.ConnectionManager()', 'beforeunload event has triggered the connection to close as closeOnUnload is true');
+					self.requestState({state: 'closing'});
+				});
 			}
 
 			/* Listen for online and offline events */
@@ -6217,7 +6219,7 @@ var ConnectionManager = (function() {
 
 		var connectionKey = connectionDetails.connectionKey;
 		if(connectionKey && this.connectionKey != connectionKey)  {
-			this.setConnection(connectionId, connectionDetails, connectionPosition);
+			this.setConnection(connectionId, connectionDetails, connectionPosition, true);
 		}
 
 		/* Rebroadcast any new connectionDetails from the active transport, which
@@ -6324,11 +6326,15 @@ var ConnectionManager = (function() {
 			/* TODO remove below line once realtime sends token errors as DISCONNECTEDs */
 			if(state === 'failed' && Auth.isTokenErr(error)) { state = 'disconnected' }
 			this.notifyState({state: state, error: error});
-		} else if(wasActive && (state === 'disconnected')) {
+		} else if(wasActive && (state === 'disconnected') && (this.state !== this.states.synchronizing)) {
 			/* If we were active but there is another transport scheduled for
 			* activation, go into to the connecting state until that transport
 			* activates and sets us back to connected. (manually starting the
-			* transition timers in case that never happens) */
+			* transition timers in case that never happens). (If we were in the
+			* synchronizing state, then that's fine, the old transport just got its
+			* disconnected before the new one got the sync -- ignore it and keep
+			* waiting for the sync. If it fails we have a separate sync timer that
+			* will expire). */
 			Logger.logAction(Logger.LOG_MICRO, 'ConnectionManager.deactivateTransport()', 'wasActive but another transport is connected and scheduled for activation, so going into the connecting state until it activates');
 			this.startSuspendTimer();
 			this.startTransitionTimer(this.states.connecting);
@@ -6375,7 +6381,7 @@ var ConnectionManager = (function() {
 		});
 	};
 
-	ConnectionManager.prototype.setConnection = function(connectionId, connectionDetails, connectionPosition) {
+	ConnectionManager.prototype.setConnection = function(connectionId, connectionDetails, connectionPosition, forceSetPosition) {
 		/* if connectionKey changes but connectionId stays the same, then just a
 		 * transport change on the same connection. If connectionId changes, we're
 		 * on a new connection, with implications for msgSerial and channel state */
@@ -6400,7 +6406,7 @@ var ConnectionManager = (function() {
 		}
 		this.realtime.connection.id = this.connectionId = connectionId;
 		this.realtime.connection.key = this.connectionKey = connectionDetails.connectionKey;
-		this.setConnectionSerial(connectionPosition);
+		this.setConnectionSerial(connectionPosition, forceSetPosition);
 	};
 
 	ConnectionManager.prototype.clearConnection = function() {
@@ -6411,10 +6417,12 @@ var ConnectionManager = (function() {
 		this.unpersistConnection();
 	};
 
-	ConnectionManager.prototype.setConnectionSerial = function(connectionPosition) {
+	/* force: set the connectionSerial even if it's less than the current connectionSerial. Used when
+	 * activating a new transport, where the connectionSerial realtime tells us we have must be authoritative */
+	ConnectionManager.prototype.setConnectionSerial = function(connectionPosition, force) {
 		var timeSerial = connectionPosition.timeSerial;
 		if(timeSerial !== undefined) {
-			if(timeSerial <= this.timeSerial) {
+			if(timeSerial <= this.timeSerial && !force) {
 				Logger.logAction(Logger.LOG_MICRO, 'ConnectionManager.setConnectionSerial() received message with timeSerial ' + timeSerial + ', but current timeSerial is ' + this.timeSerial + '; assuming message is a duplicate and discarding it');
 				return;
 			}
@@ -6424,7 +6432,7 @@ var ConnectionManager = (function() {
 		}
 		var connectionSerial = connectionPosition.connectionSerial;
 		if(connectionSerial !== undefined) {
-			if(connectionSerial <= this.connectionSerial) {
+			if(connectionSerial <= this.connectionSerial && !force) {
 				Logger.logAction(Logger.LOG_MICRO, 'ConnectionManager.setConnectionSerial() received message with connectionSerial ' + connectionSerial + ', but current connectionSerial is ' + this.connectionSerial + '; assuming message is a duplicate and discarding it');
 				return;
 			}
@@ -7361,7 +7369,7 @@ var Transport = (function() {
 
 	Transport.prototype.onProtocolMessage = function(message) {
 		if (Logger.shouldLog(Logger.LOG_MICRO)) {
-			Logger.logAction(Logger.LOG_MICRO, 'Transport.onProtocolMessage()', 'received on ' + this.shortName + ': ' + ProtocolMessage.stringify(message));
+			Logger.logAction(Logger.LOG_MICRO, 'Transport.onProtocolMessage()', 'received on ' + this.shortName + ': ' + ProtocolMessage.stringify(message) + '; connectionId = ' + this.connectionManager.connectionId);
 		}
 		this.onActivity();
 
@@ -8776,7 +8784,9 @@ var Auth = (function() {
 			}
 			/* the response from the callback might be a token string, a signed request or a token details */
 			if(typeof(tokenRequestOrDetails) === 'string') {
-				if(tokenRequestOrDetails.length > MAX_TOKENSTRING_LENGTH) {
+				if(tokenRequestOrDetails.length === 0) {
+					callback(new ErrorInfo('Token string is empty', 40170, 401));
+				} else if(tokenRequestOrDetails.length > MAX_TOKENSTRING_LENGTH) {
 					callback(new ErrorInfo('Token string exceeded max permitted length (was ' + tokenRequestOrDetails.length + ' bytes)', 40170, 401));
 				} else {
 					callback(null, {token: tokenRequestOrDetails});
@@ -8790,7 +8800,7 @@ var Auth = (function() {
 				return;
 			}
 			var objectSize = JSON.stringify(tokenRequestOrDetails).length;
-			if(objectSize > MAX_TOKENOBJECT_LENGTH) {
+			if(objectSize > MAX_TOKENOBJECT_LENGTH && !authOptions.suppressMaxLengthCheck) {
 				callback(new ErrorInfo('Token request/details object exceeded max permitted stringified size (was ' + objectSize + ' bytes)', 40170, 401));
 				return;
 			}
@@ -9263,6 +9273,10 @@ var Rest = (function() {
 		}
 	};
 
+	Rest.prototype.setLog = function(logOptions) {
+		Logger.setLog(logOptions.level, logOptions.handler);
+	};
+
 	function Channels(rest) {
 		this.rest = rest;
 		this.attached = {};
@@ -9318,7 +9332,10 @@ var Realtime = (function() {
 		this.realtime = realtime;
 		this.all = {};
 		this.inProgress = {};
-		realtime.connection.connectionManager.on('transport.active', this.onTransportActive.bind(this));
+		var self = this;
+		realtime.connection.connectionManager.on('transport.active', function() {
+			self.onTransportActive();
+		});
 	}
 	Utils.inherits(Channels, EventEmitter);
 
@@ -9346,7 +9363,7 @@ var Realtime = (function() {
 			if(channel.state === 'attaching' || channel.state === 'detaching') {
 				channel.checkPendingState();
 			} else if(channel.state === 'suspended') {
-				channel.autonomousAttach();
+				channel.attach();
 			}
 		}
 	};
@@ -9630,7 +9647,6 @@ var RealtimeChannel = (function() {
 		this.connectionManager = realtime.connection.connectionManager;
 		this.state = 'initialized';
 		this.subscriptions = new EventEmitter();
-		this.pendingEvents = [];
 		this.syncChannelSerial = undefined;
 		this.attachSerial = undefined;
 		this.setOptions(options);
@@ -9728,7 +9744,11 @@ var RealtimeChannel = (function() {
 			callback = flags;
 			flags = null;
 		}
-		callback = callback || noop;
+		callback = callback || function(err) {
+			if(err) {
+				Logger.logAction(Logger.LOG_MAJOR, 'RealtimeChannel.attach()', 'Channel attach failed: ' + err.toString());
+			}
+		};
 		if(flags) {
 			this._requestedFlags = flags;
 		}
@@ -9807,16 +9827,6 @@ var RealtimeChannel = (function() {
 		}
 	};
 
-	RealtimeChannel.prototype.autonomousAttach = function() {
-		var self = this;
-		this.attach(function(err) {
-			if(err) {
-				var msg = 'Channel auto-attach failed: ' + err.toString();
-				Logger.logAction(Logger.LOG_MINOR, 'RealtimeChannel.autonomousAttach()', msg);
-			}
-		});
-	};
-
 	RealtimeChannel.prototype.detachImpl = function(callback) {
 		Logger.logAction(Logger.LOG_MICRO, 'RealtimeChannel.detach()', 'sending DETACH message');
 		this.setInProgress(statechangeOp, true);
@@ -9839,11 +9849,7 @@ var RealtimeChannel = (function() {
 
 		subscriptions.on(event, listener);
 
-		if(callback) {
-			this.attach(callback);
-		} else {
-			this.autonomousAttach();
-		}
+		this.attach(callback);
 	};
 
 	RealtimeChannel.prototype.unsubscribe = function(/* [event], listener, [callback] */) {
@@ -9906,10 +9912,11 @@ var RealtimeChannel = (function() {
 			this.attachSerial = message.channelSerial;
 			this._mode = message.getMode();
 			if(this.state === 'attached') {
-				if(!message.hasFlag('RESUMED')) {
+				var resumed = message.hasFlag('RESUMED');
+				if(!resumed || this.channelOptions.updateOnAttached) {
 					/* On a loss of continuity, the presence set needs to be re-synced */
 					this.presence.onAttached(message.hasFlag('HAS_PRESENCE'))
-					var change = new ChannelStateChange(this.state, this.state, false, message.error);
+					var change = new ChannelStateChange(this.state, this.state, resumed, message.error);
 					this.emit('update', change);
 				}
 			} else {
@@ -10023,20 +10030,6 @@ var RealtimeChannel = (function() {
 
 	RealtimeChannel.prototype.onAttached = function() {
 		Logger.logAction(Logger.LOG_MINOR, 'RealtimeChannel.onAttached', 'activating channel; name = ' + this.name);
-
-		var pendingEvents = this.pendingEvents, pendingCount = pendingEvents.length;
-		if(pendingCount) {
-			this.pendingEvents = [];
-			var msg = ProtocolMessage.fromValues({action: actions.MESSAGE, channel: this.name, messages: []});
-			var multicaster = Multicaster();
-			Logger.logAction(Logger.LOG_MICRO, 'RealtimeChannel.setAttached', 'sending ' + pendingCount + ' queued messages');
-			for(var i = 0; i < pendingCount; i++) {
-				var event = pendingEvents[i];
-				Array.prototype.push.apply(msg.messages, event.messages);
-				multicaster.push(event.callback);
-			}
-			this.sendMessage(msg, multicaster);
-		}
 	};
 
 	RealtimeChannel.prototype.notifyState = function(state, reason, resumed, hasPresence) {
@@ -10047,9 +10040,6 @@ var RealtimeChannel = (function() {
 			return;
 		}
 		this.presence.actOnChannelState(state, hasPresence, reason);
-		if(state !== 'attached' && state !== 'attaching') {
-			this.failPendingMessages(reason || RealtimeChannel.invalidStateError(state));
-		}
 		if(state === 'suspended' && this.connectionManager.state.sendEvents) {
 			this.startRetryTimer();
 		} else {
@@ -10173,18 +10163,6 @@ var RealtimeChannel = (function() {
 		this.rest.channels.setInProgress(this, operation, value);
 	};
 
-	RealtimeChannel.prototype.failPendingMessages = function(err) {
-		var numPending = this.pendingEvents.length;
-		if(numPending > 0) {
-			Logger.logAction(Logger.LOG_ERROR, 'RealtimeChannel.failPendingMessages', 'channel; name = ' + this.name + ', failing' + numPending + ' pending messages, err = ' + Utils.inspectError(err));
-			for(var i = 0; i < this.pendingEvents.length; i++)
-				try {
-					this.pendingEvents[i].callback(err);
-				} catch(e) {}
-			this.pendingEvents = [];
-		}
-	};
-
 	RealtimeChannel.prototype.history = function(params, callback) {
 		Logger.logAction(Logger.LOG_MICRO, 'RealtimeChannel.history()', 'channel = ' + this.name);
 		/* params and callback are optional; see if params contains the callback */
@@ -10240,6 +10218,7 @@ var RealtimePresence = (function() {
 		return !realtime.auth.clientId && realtime.connection.state === 'connected';
 	}
 
+	/* Callback is called only in the event of an error */
 	function waitAttached(channel, callback, action) {
 		switch(channel.state) {
 			case 'attached':
@@ -10307,7 +10286,7 @@ var RealtimePresence = (function() {
 		}
 
 		Logger.logAction(Logger.LOG_MICRO, 'RealtimePresence.' + action + 'Client()',
-		  action + 'ing; channel = ' + channel.name + ', client = ' + clientId || '(implicit) ' + getClientId(this));
+		  'channel = ' + channel.name + ', client = ' + (clientId || '(implicit) ' + getClientId(this)));
 
 		var presence = PresenceMessage.fromValues({
 			action : action,
@@ -10327,7 +10306,7 @@ var RealtimePresence = (function() {
 					break;
 				case 'initialized':
 				case 'detached':
-					channel.autonomousAttach();
+					channel.attach();
 				case 'attaching':
 					self.pendingPresence.push({
 						presence : presence,
@@ -10624,11 +10603,16 @@ var RealtimePresence = (function() {
 		var event = args[0];
 		var listener = args[1];
 		var callback = args[2];
+		var channel = this.channel;
 		var self = this;
 
-		waitAttached(this.channel, callback, function() {
-			self.subscriptions.on(event, listener);
-		});
+		if(channel.state === 'failed') {
+			callback(ErrorInfo.fromValues(RealtimeChannel.invalidStateError('failed')));
+			return;
+		}
+
+		this.subscriptions.on(event, listener);
+		channel.attach(callback);
 	};
 
 	RealtimePresence.prototype.unsubscribe = function(/* [event], listener, [callback] */) {
@@ -10637,8 +10621,10 @@ var RealtimePresence = (function() {
 		var listener = args[1];
 		var callback = args[2];
 
-		if(this.channel.state === 'failed')
+		if(this.channel.state === 'failed') {
 			callback(ErrorInfo.fromValues(RealtimeChannel.invalidStateError('failed')));
+			return;
+		}
 
 		this.subscriptions.off(event, listener);
 	};
