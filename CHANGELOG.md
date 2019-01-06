@@ -2,6 +2,30 @@
 
 This contains only the most important and/or user-facing changes; for a full changelog, see the commit history.
 
+## [1.0.20](https://github.com/ably/ably-js/tree/1.0.20) (2018-12-02)
+- Temporarily back out of clientId change due to CORS issue
+
+## [1.0.19](https://github.com/ably/ably-js/tree/1.0.19) (2018-11-22)
+
+- Expose rest#setLog method to change log level or handler at runtime
+- Allow jsonp for REST requests even if allowComet is false
+- Expose Rest.Message for node, for consistency with Realtime.Message
+- Add updateOnAttached channel option to force 'update' event even if `resumed` is true
+- Stop a clientId from forcing token auth (https://github.com/ably/ably-js/issues/542)
+- Fix package bloat through mistaken node_modules_node6 includes (due to npm not correctly parsing .gitignore)
+
+## [1.0.18](https://github.com/ably/ably-js/tree/1.0.18) (2018-09-27)
+
+- Fix bug where connectionSerial was not getting reset after a resume failure (https://github.com/ably/ably-js/pull/540)
+
+## [1.0.17](https://github.com/ably/ably-js/tree/1.0.17) (2018-09-19)
+
+- Give presence.subscribe attach callback the same behaviour as channel.subscribe, for consistency (so it calls back once attached rather than only in the event of an attach error) (https://github.com/ably/ably-js/pull/526)
+- Handle empty string response from an authUrl or authCallback as a token error
+- Upgrade ws module to v5 (nodejs only) (https://github.com/ably/ably-js/pull/525)
+
+**Note: this release drops support for nodejs versions < 4.5.** node v4 versions 4.5 or later are still supported; customers using node v4 are highly encouraged to update to the latest 4.x branch for security reasons
+
 ## [1.0.16](https://github.com/ably/ably-js/tree/1.0.16) (2018-06-25)
 
 - Ensure a message id is included when serialized (https://github.com/ably/ably-js/pull/518)

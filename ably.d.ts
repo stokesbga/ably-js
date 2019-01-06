@@ -311,7 +311,6 @@ declare namespace Types {
     on: (eventOrCallback: EventType | EventType[] | CallbackType, callback?: CallbackType) => void;
     once: (eventOrCallback: EventType | CallbackType, callback?: CallbackType) => void;
     off: (eventOrCallback?: EventType | CallbackType, callback?: CallbackType) => void;
-    whenState: (targetState: StateType, currentState: StateType, callback: CallbackType) => void;
     listeners: (eventName?: EventType) => CallbackType[] | null;
   }
 
@@ -332,7 +331,7 @@ declare namespace Types {
     syncComplete: boolean;
     get: (Params: realtimePresenceGetCallback | RealtimePresenceParams, callback?: realtimePresenceGetCallback) => void;
     history: (ParamsOrCallback: RealtimePresenceHistoryParams | paginatedResultCallback<PresenceMessage>, callback?: paginatedResultCallback<PresenceMessage>) => void;
-    subscribe: (presenceOrCallback: PresenceAction | messageCallback<PresenceMessage>, listener?: messageCallback<PresenceMessage>) => void;
+    subscribe: (presenceOrCallback: PresenceAction | messageCallback<PresenceMessage> | Array<PresenceAction>, listener?: messageCallback<PresenceMessage>) => void;
     unsubscribe: (presence?: PresenceAction, listener?: messageCallback<PresenceMessage>) => void;
     enter: (data?: errorCallback | any, callback?: errorCallback) => void;
     update: (data?: errorCallback | any, callback?: errorCallback) => void;
@@ -357,10 +356,11 @@ declare namespace Types {
     attach: (callback?: standardCallback) => void;
     detach: (callback?: standardCallback) => void;
     history: (paramsOrCallback?: RealtimePresenceHistoryParams | paginatedResultCallback<Message>, callback?: paginatedResultCallback<Message>) => void;
-    subscribe: (eventOrCallback: messageCallback<Message> | string, listener?: messageCallback<Message>) => void;
+    subscribe: (eventOrCallback: messageCallback<Message> | string | Array<string>, listener?: messageCallback<Message>) => void;
     unsubscribe: (eventOrCallback?: messageCallback<Message> | string, listener?: messageCallback<Message>) => void;
     publish: (messagesOrName: any, messageDataOrCallback?: errorCallback | any, callback?: errorCallback) => void;
     setOptions: (options: any, callback?: errorCallback) => void;
+    whenState: (targetState: ChannelState, callback: channelEventCallback) => void;
   }
 
   class Channels<T> {
@@ -419,6 +419,7 @@ declare namespace Types {
     close: () => void;
     connect: () => void;
     ping: (callback?: (error: ErrorInfo, responseTime: number ) => void ) => void;
+    whenState: (targetState: ConnectionState, callback: connectionEventCallback) => void;
   }
 
   class Stats {

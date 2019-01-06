@@ -53,7 +53,7 @@ var RealtimeChannel = (function() {
 			++argCount;
 		}
 		if(!this.connectionManager.activeState()) {
-			callback(this.connectionManager.getStateError());
+			callback(this.connectionManager.getError());
 			return;
 		}
 		if(argCount == 2) {
@@ -66,11 +66,17 @@ var RealtimeChannel = (function() {
 		} else {
 			messages = [Message.fromValues({name: arguments[0], data: arguments[1]})];
 		}
-		var options = this.channelOptions;
-		var self = this;
-		Message.encodeArray(messages, options, function(err) {
+		var self = this,
+			maxMessageSize = this.realtime.options.maxMessageSize;
+		Message.encodeArray(messages, this.channelOptions, function(err) {
 			if (err) {
 				callback(err);
+				return;
+			}
+			/* RSL1i */
+			var size = Message.getMessagesSize(messages);
+			if(size > maxMessageSize) {
+				callback(new ErrorInfo('Maximum size of messages that can be published at once exceeded ( was ' + size + ' bytes; limit is ' + maxMessageSize + ' bytes)', 40009, 400));
 				return;
 			}
 			self._publish(messages, callback);
@@ -120,7 +126,7 @@ var RealtimeChannel = (function() {
 		}
 		var connectionManager = this.connectionManager;
 		if(!connectionManager.activeState()) {
-			callback(connectionManager.getStateError());
+			callback(connectionManager.getError());
 			return;
 		}
 		switch(this.state) {
@@ -142,7 +148,11 @@ var RealtimeChannel = (function() {
 						case 'detached':
 						case 'suspended':
 						case 'failed':
-							callback(stateChange.reason || connectionManager.getStateError());
+							callback(stateChange.reason || connectionManager.getError());
+							break;
+						case 'detaching':
+							callback(new ErrorInfo('Attach request superseded by a subsequent detach request', 90000, 409));
+							break;
 					}
 				});
 			}
@@ -164,7 +174,7 @@ var RealtimeChannel = (function() {
 		callback = callback || noop;
 		var connectionManager = this.connectionManager;
 		if(!connectionManager.activeState()) {
-			callback(connectionManager.getStateError());
+			callback(connectionManager.getError());
 			return;
 		}
 		switch(this.state) {
@@ -180,13 +190,13 @@ var RealtimeChannel = (function() {
 						case 'detached':
 							callback();
 							break;
-						case 'failed':
 						case 'attached':
-							callback(stateChange.reason || connectionManager.getStateError());
+						case 'suspended':
+						case 'failed':
+							callback(stateChange.reason || connectionManager.getError());
 							break;
-						default:
-							/* this shouldn't happen ... */
-							callback(ConnectionError.unknownChannelErr);
+						case 'detached':
+							callback(new ErrorInfo('Detach request superseded by a subsequent attach request', 90000, 409));
 							break;
 					}
 				});
@@ -245,7 +255,7 @@ var RealtimeChannel = (function() {
 		}
 		var connectionManager = this.connectionManager;
 		if(!connectionManager.activeState()) {
-			throw connectionManager.getStateError();
+			throw connectionManager.getError();
 		}
 
 		/* send sync request */
@@ -278,10 +288,11 @@ var RealtimeChannel = (function() {
 			this.attachSerial = message.channelSerial;
 			this._mode = message.getMode();
 			if(this.state === 'attached') {
-				if(!message.hasFlag('RESUMED')) {
+				var resumed = message.hasFlag('RESUMED');
+				if(!resumed || this.channelOptions.updateOnAttached) {
 					/* On a loss of continuity, the presence set needs to be re-synced */
 					this.presence.onAttached(message.hasFlag('HAS_PRESENCE'))
-					var change = new ChannelStateChange(this.state, this.state, false, message.error);
+					var change = new ChannelStateChange(this.state, this.state, resumed, message.error);
 					this.emit('update', change);
 				}
 			} else {
@@ -368,29 +379,6 @@ var RealtimeChannel = (function() {
 			Logger.logAction(Logger.LOG_ERROR, 'RealtimeChannel.onMessage()', 'Fatal protocol error: unrecognised action (' + message.action + ')');
 			this.connectionManager.abort(ConnectionError.unknownChannelErr);
 		}
-	};
-
-	RealtimeChannel.mergeTo = function(dest, src) {
-		var result = false;
-		var action;
-		if(dest.channel == src.channel) {
-			if((action = dest.action) == src.action) {
-				switch(action) {
-				case actions.MESSAGE:
-					for(var i = 0; i < src.messages.length; i++)
-						dest.messages.push(src.messages[i]);
-					result = true;
-					break;
-				case actions.PRESENCE:
-					for(var i = 0; i < src.presence.length; i++)
-						dest.presence.push(src.presence[i]);
-					result = true;
-					break;
-				default:
-				}
-			}
-		}
-		return result;
 	};
 
 	RealtimeChannel.prototype.onAttached = function() {
